@@ -1,13 +1,21 @@
 use std::sync::Mutex;
+use std::time::Duration;
 
-use tauri::State;
+use serde::Deserialize;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::models::{Device, Service};
-use crate::ping::{self, PingOnceResult};
+use crate::ping::{self, PingOnceResult, PingTickPayload};
 use crate::store::Store;
 
 pub struct AppState {
     pub store: Mutex<Store>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PingDeviceTarget {
+    pub id: String,
+    pub ip: String,
 }
 
 #[tauri::command]
@@ -81,6 +89,65 @@ pub fn delete_service(state: State<'_, AppState>, service_id: String) -> Result<
 }
 
 #[tauri::command]
-pub fn ping_once(ip: String) -> PingOnceResult {
-    ping::ping_once(&ip)
+pub async fn ping_once(ip: String) -> PingOnceResult {
+    tauri::async_runtime::spawn_blocking(move || ping::ping_once(&ip))
+        .await
+        .unwrap_or_else(|err| PingOnceResult {
+            ok: false,
+            sample: None,
+            error: Some(format!("ping 任务失败: {err}")),
+        })
+}
+
+#[tauri::command]
+pub async fn run_ping_monitor(
+    app: AppHandle,
+    devices: Vec<PingDeviceTarget>,
+    seconds: u32,
+) -> Result<(), String> {
+    if devices.is_empty() {
+        return Ok(());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let interval = Duration::from_secs(1);
+
+        for sec in 1..=seconds {
+            let handles: Vec<_> = devices
+                .iter()
+                .map(|device| {
+                    let device_id = device.id.clone();
+                    let ip = device.ip.clone();
+                    std::thread::spawn(move || {
+                        let result = ping::ping_once(&ip);
+                        (device_id, result)
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                if let Ok((device_id, result)) = handle.join() {
+                    let _ = app.emit(
+                        "ping-tick",
+                        PingTickPayload {
+                            device_id,
+                            second: sec,
+                            total: seconds,
+                            result,
+                        },
+                    );
+                }
+            }
+
+            if sec < seconds {
+                std::thread::sleep(interval);
+            }
+        }
+
+        let _ = app.emit("ping-done", ());
+    })
+    .await
+    .map_err(|err| format!("ping 监控任务失败: {err}"))?;
+
+    Ok(())
 }

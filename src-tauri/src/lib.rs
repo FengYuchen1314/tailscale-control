@@ -37,6 +37,7 @@ pub fn run() {
             commands::update_service,
             commands::delete_service,
             commands::ping_once,
+            commands::run_ping_monitor,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

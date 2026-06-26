@@ -1,16 +1,12 @@
 import { useMemo, useRef, useState } from "react";
-import { PING_INTERVAL_MS, PING_SECONDS, pingOnce } from "../api";
+import { PING_SECONDS, runPingMonitor } from "../api";
 import { PageHeader } from "../components/PageHeader";
-import type { Device, DevicePingState, PingSample } from "../types";
+import type { Device, DevicePingState, PingSample, PingTickPayload } from "../types";
 
 interface StatusListPageProps {
   devices: Device[];
   onToast: (message: string) => void;
   onGoDevices: () => void;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function channelLabel(sample: PingSample | null): string {
@@ -76,6 +72,49 @@ function FlipResult({
   );
 }
 
+function applyTick(
+  prev: Record<string, DevicePingState>,
+  payload: PingTickPayload,
+): Record<string, DevicePingState> {
+  const { device_id, second, total, result } = payload;
+  const prevState = prev[device_id] ?? {
+    loading: true,
+    current: null,
+    tick: 0,
+    lastError: null,
+    checkedAt: null,
+    everOnline: false,
+  };
+  const tick = prevState.tick + 1;
+  const isLast = second >= total;
+
+  if (result.ok && result.sample) {
+    return {
+      ...prev,
+      [device_id]: {
+        loading: !isLast,
+        current: result.sample,
+        tick,
+        lastError: null,
+        everOnline: true,
+        checkedAt: isLast ? new Date().toLocaleTimeString() : prevState.checkedAt,
+      },
+    };
+  }
+
+  return {
+    ...prev,
+    [device_id]: {
+      loading: !isLast,
+      current: null,
+      tick,
+      lastError: result.error,
+      everOnline: prevState.everOnline,
+      checkedAt: isLast ? new Date().toLocaleTimeString() : prevState.checkedAt,
+    },
+  };
+}
+
 export function StatusListPage({
   devices,
   onToast,
@@ -113,7 +152,6 @@ export function StatusListPage({
   async function runPingSeries(device: Device) {
     const runId = (runIdsRef.current[device.id] ?? 0) + 1;
     runIdsRef.current[device.id] = runId;
-    let tick = 0;
     let hadSuccess = false;
 
     setPingMap((prev) => ({
@@ -121,64 +159,28 @@ export function StatusListPage({
       [device.id]: initPingState(),
     }));
 
-    for (let sec = 1; sec <= PING_SECONDS; sec++) {
+    try {
+      await runPingMonitor([{ id: device.id, ip: device.ip }], (payload) => {
+        if (!isRunActive(device.id, runId)) return;
+        if (payload.result.ok && payload.result.sample) {
+          hadSuccess = true;
+        }
+        setPingMap((prev) => applyTick(prev, payload));
+      });
+    } finally {
       if (!isRunActive(device.id, runId)) return;
 
-      const result = await pingOnce(device.ip);
-      if (!isRunActive(device.id, runId)) return;
+      setPingMap((prev) => ({
+        ...prev,
+        [device.id]: {
+          ...prev[device.id],
+          loading: false,
+        },
+      }));
 
-      tick += 1;
-
-      if (result.ok && result.sample) {
-        hadSuccess = true;
-        setPingMap((prev) => ({
-          ...prev,
-          [device.id]: {
-            loading: sec < PING_SECONDS,
-            current: result.sample,
-            tick,
-            lastError: null,
-            everOnline: true,
-            checkedAt:
-              sec === PING_SECONDS
-                ? new Date().toLocaleTimeString()
-                : prev[device.id]?.checkedAt ?? null,
-          },
-        }));
-      } else {
-        setPingMap((prev) => ({
-          ...prev,
-          [device.id]: {
-            loading: sec < PING_SECONDS,
-            current: null,
-            tick,
-            lastError: result.error,
-            everOnline: prev[device.id]?.everOnline ?? false,
-            checkedAt:
-              sec === PING_SECONDS
-                ? new Date().toLocaleTimeString()
-                : prev[device.id]?.checkedAt ?? null,
-          },
-        }));
+      if (!hadSuccess) {
+        onToast(`${device.name} 检测失败`);
       }
-
-      if (sec < PING_SECONDS) {
-        await sleep(PING_INTERVAL_MS);
-      }
-    }
-
-    if (!isRunActive(device.id, runId)) return;
-
-    setPingMap((prev) => ({
-      ...prev,
-      [device.id]: {
-        ...prev[device.id],
-        loading: false,
-      },
-    }));
-
-    if (!hadSuccess) {
-      onToast(`${device.name} 检测失败`);
     }
   }
 
@@ -196,85 +198,40 @@ export function StatusListPage({
       return next;
     });
 
-    let onlineSet = new Set<string>();
+    const onlineSet = new Set<string>();
 
-    for (let sec = 1; sec <= PING_SECONDS; sec++) {
-      if (batchRunId !== batchRunIdRef.current) return;
-
-      const results = await Promise.all(
-        filtered.map(async (device) => ({
-          device,
-          result: await pingOnce(device.ip),
-        })),
+    try {
+      await runPingMonitor(
+        filtered.map((device) => ({ id: device.id, ip: device.ip })),
+        (payload) => {
+          if (batchRunId !== batchRunIdRef.current) return;
+          if (payload.result.ok && payload.result.sample) {
+            onlineSet.add(payload.device_id);
+          }
+          setPingMap((prev) => applyTick(prev, payload));
+        },
       );
-
+    } finally {
       if (batchRunId !== batchRunIdRef.current) return;
-
-      for (const { device, result } of results) {
-        if (result.ok && result.sample) {
-          onlineSet.add(device.id);
-        }
-      }
 
       setPingMap((prev) => {
         const next = { ...prev };
-        for (const { device, result } of results) {
-          const prevState = next[device.id] ?? initPingState();
-          const tick = prevState.tick + 1;
-
-          if (result.ok && result.sample) {
-            next[device.id] = {
-              loading: sec < PING_SECONDS,
-              current: result.sample,
-              tick,
-              lastError: null,
-              everOnline: true,
-              checkedAt:
-                sec === PING_SECONDS
-                  ? new Date().toLocaleTimeString()
-                  : prevState.checkedAt,
-            };
-          } else {
-            next[device.id] = {
-              loading: sec < PING_SECONDS,
-              current: null,
-              tick,
-              lastError: result.error,
-              everOnline: prevState.everOnline,
-              checkedAt:
-                sec === PING_SECONDS
-                  ? new Date().toLocaleTimeString()
-                  : prevState.checkedAt,
-            };
+        for (const device of filtered) {
+          if (next[device.id]) {
+            next[device.id] = { ...next[device.id], loading: false };
           }
         }
         return next;
       });
 
-      if (sec < PING_SECONDS) {
-        await sleep(PING_INTERVAL_MS);
+      setPingingAll(false);
+
+      const failCount = filtered.length - onlineSet.size;
+      if (failCount > 0) {
+        onToast(`${failCount} 台设备检测失败`);
+      } else {
+        onToast("全部检测完成");
       }
-    }
-
-    if (batchRunId !== batchRunIdRef.current) return;
-
-    setPingMap((prev) => {
-      const next = { ...prev };
-      for (const device of filtered) {
-        if (next[device.id]) {
-          next[device.id] = { ...next[device.id], loading: false };
-        }
-      }
-      return next;
-    });
-
-    setPingingAll(false);
-
-    const failCount = filtered.length - onlineSet.size;
-    if (failCount > 0) {
-      onToast(`${failCount} 台设备检测失败`);
-    } else {
-      onToast("全部检测完成");
     }
   }
 
@@ -286,7 +243,7 @@ export function StatusListPage({
     <div className="page">
       <PageHeader
         title="设备状态"
-        description="全部设备同时检测，每秒并行采样一次，共 10 秒。"
+        description={`全部设备同时检测，每秒并行采样一次，共 ${PING_SECONDS} 秒。`}
         actions={
           <button
             className="btn-primary"

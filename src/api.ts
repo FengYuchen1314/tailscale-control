@@ -1,8 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type {
   Device,
   DeviceInput,
+  PingDeviceTarget,
   PingOnceResult,
+  PingTickPayload,
   Service,
   ServiceInput,
 } from "./types";
@@ -47,6 +50,21 @@ export async function deleteService(serviceId: string): Promise<void> {
 
 export async function pingOnce(ip: string): Promise<PingOnceResult> {
   return invoke("ping_once", { ip });
+}
+
+export async function runPingMonitor(
+  devices: PingDeviceTarget[],
+  onTick: (payload: PingTickPayload) => void,
+): Promise<void> {
+  const unlisten = await listen<PingTickPayload>("ping-tick", (event) => {
+    onTick(event.payload);
+  });
+
+  try {
+    await invoke("run_ping_monitor", { devices, seconds: PING_SECONDS });
+  } finally {
+    unlisten();
+  }
 }
 
 export const PING_SECONDS = 10;

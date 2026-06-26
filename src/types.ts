@@ -48,6 +48,18 @@ export interface PingOnceResult {
   error: string | null;
 }
 
+export interface PingDeviceTarget {
+  id: string;
+  ip: string;
+}
+
+export interface PingTickPayload {
+  device_id: string;
+  second: number;
+  total: number;
+  result: PingOnceResult;
+}
+
 export interface DevicePingState {
   loading: boolean;
   current: PingSample | null;

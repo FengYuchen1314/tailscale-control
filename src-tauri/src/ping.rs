@@ -16,13 +16,36 @@ pub struct PingOnceResult {
     pub error: Option<String>,
 }
 
-/// 单次 ping，超时 2s。
+#[derive(Debug, Clone, Serialize)]
+pub struct PingTickPayload {
+    pub device_id: String,
+    pub second: u32,
+    pub total: u32,
+    pub result: PingOnceResult,
+}
+
+const PING_TIMEOUT_SECS: u32 = 2;
+
+fn tailscale_command(args: &[&str]) -> Command {
+    let mut cmd = Command::new("tailscale");
+    cmd.args(args);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    cmd
+}
+
+/// 单次 ping。
 pub fn ping_once(ip: &str) -> PingOnceResult {
     let ip = ip.trim();
+    let timeout = format!("{PING_TIMEOUT_SECS}s");
 
-    let output = Command::new("tailscale")
-        .args(["ping", "--c", "1", "--timeout", "2s", ip])
-        .output();
+    let output = tailscale_command(&["ping", "--c", "1", "--timeout", &timeout, ip]).output();
 
     match output {
         Ok(out) => {
