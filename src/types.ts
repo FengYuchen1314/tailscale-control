@@ -1,39 +1,14 @@
-export interface Service {
-  id: string;
-  port: number;
-  name: string;
-  protocol: "http" | "https" | "tcp";
-  path: string;
-  notes: string;
-}
-
 export interface Device {
   id: string;
   name: string;
   ip: string;
   notes: string;
-  services: Service[];
 }
 
 export interface DeviceInput {
   name: string;
   ip: string;
   notes: string;
-}
-
-export interface ServiceInput {
-  port: number;
-  name: string;
-  protocol: "http" | "https" | "tcp";
-  path: string;
-  notes: string;
-}
-
-export interface ServiceRow {
-  service: Service;
-  deviceId: string;
-  deviceName: string;
-  deviceIp: string;
 }
 
 export interface PingSample {
@@ -65,8 +40,8 @@ export interface DevicePingState {
   current: PingSample | null;
   tick: number;
   lastError: string | null;
-  checkedAt: string | null;
+  ipLocation: string | null;
   everOnline: boolean;
 }
 
-export type Page = "devices" | "services" | "status";
+export type Page = "devices" | "status";

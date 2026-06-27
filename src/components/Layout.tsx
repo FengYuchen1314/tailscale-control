@@ -9,13 +9,10 @@ interface LayoutProps {
 
 const navItems: { id: Page; label: string; desc: string }[] = [
   { id: "devices", label: "设备", desc: "名称与 IP 管理" },
-  { id: "services", label: "服务", desc: "端口映射" },
-  { id: "status", label: "状态", desc: "连通性检测" },
+  { id: "status", label: "状态", desc: "通道与延迟检测" },
 ];
 
 export function Layout({ page, devices, onNavigate, children }: LayoutProps) {
-  const serviceCount = devices.reduce((n, d) => n + d.services.length, 0);
-
   return (
     <div className="shell">
       <aside className="sidebar glass-panel">
@@ -44,11 +41,6 @@ export function Layout({ page, devices, onNavigate, children }: LayoutProps) {
           <div className="stat">
             <span className="stat-value">{devices.length}</span>
             <span className="stat-label">设备</span>
-          </div>
-          <div className="stat-divider" />
-          <div className="stat">
-            <span className="stat-value">{serviceCount}</span>
-            <span className="stat-label">服务</span>
           </div>
         </div>
       </aside>

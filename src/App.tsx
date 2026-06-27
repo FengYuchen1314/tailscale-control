@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { getDevices } from "./api";
 import { Layout } from "./components/Layout";
 import { DeviceListPage } from "./pages/DeviceListPage";
-import { ServiceListPage } from "./pages/ServiceListPage";
 import { StatusListPage } from "./pages/StatusListPage";
 import type { Device, Page } from "./types";
 import "./App.css";
@@ -38,14 +37,6 @@ function App() {
             devices={devices}
             onRefresh={refresh}
             onToast={showToast}
-          />
-        )}
-        {page === "services" && (
-          <ServiceListPage
-            devices={devices}
-            onRefresh={refresh}
-            onToast={showToast}
-            onGoDevices={() => setPage("devices")}
           />
         )}
         {page === "status" && (

@@ -1,4 +1,5 @@
 mod commands;
+mod geo;
 mod models;
 mod ping;
 mod store;
@@ -33,11 +34,9 @@ pub fn run() {
             commands::add_device,
             commands::update_device,
             commands::delete_device,
-            commands::add_service,
-            commands::update_service,
-            commands::delete_service,
             commands::ping_once,
             commands::run_ping_monitor,
+            commands::lookup_ip_location,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

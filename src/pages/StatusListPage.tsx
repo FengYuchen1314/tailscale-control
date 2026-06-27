@@ -1,7 +1,12 @@
-import { useMemo, useRef, useState } from "react";
-import { PING_SECONDS, runPingMonitor } from "../api";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { lookupIpLocation, PING_SECONDS, runPingMonitor } from "../api";
 import { PageHeader } from "../components/PageHeader";
 import type { Device, DevicePingState, PingSample, PingTickPayload } from "../types";
+import {
+  extractPublicIp,
+  formatDerpLocation,
+  locationKeyForSample,
+} from "../utils/ipLocation";
 
 interface StatusListPageProps {
   devices: Device[];
@@ -82,7 +87,7 @@ function applyTick(
     current: null,
     tick: 0,
     lastError: null,
-    checkedAt: null,
+    ipLocation: null,
     everOnline: false,
   };
   const tick = prevState.tick + 1;
@@ -96,8 +101,8 @@ function applyTick(
         current: result.sample,
         tick,
         lastError: null,
+        ipLocation: prevState.ipLocation,
         everOnline: true,
-        checkedAt: isLast ? new Date().toLocaleTimeString() : prevState.checkedAt,
       },
     };
   }
@@ -109,8 +114,8 @@ function applyTick(
       current: null,
       tick,
       lastError: result.error,
+      ipLocation: prevState.ipLocation,
       everOnline: prevState.everOnline,
-      checkedAt: isLast ? new Date().toLocaleTimeString() : prevState.checkedAt,
     },
   };
 }
@@ -125,6 +130,7 @@ export function StatusListPage({
   const [pingingAll, setPingingAll] = useState(false);
   const runIdsRef = useRef<Record<string, number>>({});
   const batchRunIdRef = useRef(0);
+  const locationCacheRef = useRef<Map<string, string>>(new Map());
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -140,7 +146,7 @@ export function StatusListPage({
       current: null,
       tick: 0,
       lastError: null,
-      checkedAt: null,
+      ipLocation: null,
       everOnline: false,
     };
   }
@@ -148,6 +154,43 @@ export function StatusListPage({
   function isRunActive(deviceId: string, runId: number) {
     return runIdsRef.current[deviceId] === runId;
   }
+
+  const resolveIpLocation = useCallback(
+    async (deviceId: string, sample: PingSample) => {
+      const cacheKey = locationKeyForSample(sample);
+      if (!cacheKey) return;
+
+      let location = locationCacheRef.current.get(cacheKey);
+
+      if (!location) {
+        if (sample.channel_type === "relay") {
+          location = formatDerpLocation(sample.channel_detail);
+        } else {
+          const publicIp = extractPublicIp(sample.channel_detail);
+          if (!publicIp) return;
+          try {
+            location = await lookupIpLocation(publicIp);
+          } catch {
+            location = "未知";
+          }
+        }
+        locationCacheRef.current.set(cacheKey, location);
+      }
+
+      setPingMap((prev) => {
+        const state = prev[deviceId];
+        if (!state) return prev;
+        return {
+          ...prev,
+          [deviceId]: {
+            ...state,
+            ipLocation: location ?? null,
+          },
+        };
+      });
+    },
+    [],
+  );
 
   async function runPingSeries(device: Device) {
     const runId = (runIdsRef.current[device.id] ?? 0) + 1;
@@ -164,6 +207,7 @@ export function StatusListPage({
         if (!isRunActive(device.id, runId)) return;
         if (payload.result.ok && payload.result.sample) {
           hadSuccess = true;
+          resolveIpLocation(device.id, payload.result.sample);
         }
         setPingMap((prev) => applyTick(prev, payload));
       });
@@ -207,6 +251,7 @@ export function StatusListPage({
           if (batchRunId !== batchRunIdRef.current) return;
           if (payload.result.ok && payload.result.sample) {
             onlineSet.add(payload.device_id);
+            resolveIpLocation(payload.device_id, payload.result.sample);
           }
           setPingMap((prev) => applyTick(prev, payload));
         },
@@ -286,7 +331,7 @@ export function StatusListPage({
                   <th>IP</th>
                   <th>状态</th>
                   <th>通道与延迟</th>
-                  <th>时间</th>
+                  <th>IP 归属地</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -315,7 +360,7 @@ export function StatusListPage({
                       <td className="flip-cell">
                         <FlipResult state={state} />
                       </td>
-                      <td className="cell-muted">{state?.checkedAt || "—"}</td>
+                      <td className="cell-muted">{state?.ipLocation || "—"}</td>
                       <td>
                         <button
                           className="btn-ghost"

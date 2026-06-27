@@ -4,7 +4,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::models::{Device, Service};
+use crate::geo;
+use crate::models::Device;
 use crate::ping::{self, PingOnceResult, PingTickPayload};
 use crate::store::Store;
 
@@ -51,41 +52,6 @@ pub fn update_device(
 pub fn delete_device(state: State<'_, AppState>, device_id: String) -> Result<(), String> {
     let mut store = state.store.lock().map_err(|e| e.to_string())?;
     store.delete_device(&device_id)
-}
-
-#[tauri::command]
-pub fn add_service(
-    state: State<'_, AppState>,
-    device_id: String,
-    port: u16,
-    name: String,
-    protocol: String,
-    path: String,
-    notes: String,
-) -> Result<Service, String> {
-    let mut store = state.store.lock().map_err(|e| e.to_string())?;
-    store.add_service(&device_id, port, name, protocol, path, notes)
-}
-
-#[tauri::command]
-pub fn update_service(
-    state: State<'_, AppState>,
-    service_id: String,
-    device_id: String,
-    port: u16,
-    name: String,
-    protocol: String,
-    path: String,
-    notes: String,
-) -> Result<Service, String> {
-    let mut store = state.store.lock().map_err(|e| e.to_string())?;
-    store.update_service(&service_id, &device_id, port, name, protocol, path, notes)
-}
-
-#[tauri::command]
-pub fn delete_service(state: State<'_, AppState>, service_id: String) -> Result<(), String> {
-    let mut store = state.store.lock().map_err(|e| e.to_string())?;
-    store.delete_service(&service_id)
 }
 
 #[tauri::command]
@@ -150,4 +116,11 @@ pub async fn run_ping_monitor(
     .map_err(|err| format!("ping 监控任务失败: {err}"))?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn lookup_ip_location(ip: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || geo::lookup_ip_location(&ip))
+        .await
+        .map_err(|err| format!("归属地查询失败: {err}"))?
 }

@@ -6,8 +6,6 @@ import type {
   PingDeviceTarget,
   PingOnceResult,
   PingTickPayload,
-  Service,
-  ServiceInput,
 } from "./types";
 
 export async function getDevices(): Promise<Device[]> {
@@ -29,27 +27,12 @@ export async function deleteDevice(deviceId: string): Promise<void> {
   return invoke("delete_device", { deviceId });
 }
 
-export async function addService(
-  deviceId: string,
-  input: ServiceInput,
-): Promise<Service> {
-  return invoke("add_service", { deviceId, ...input });
-}
-
-export async function updateService(
-  serviceId: string,
-  deviceId: string,
-  input: ServiceInput,
-): Promise<Service> {
-  return invoke("update_service", { serviceId, deviceId, ...input });
-}
-
-export async function deleteService(serviceId: string): Promise<void> {
-  return invoke("delete_service", { serviceId });
-}
-
 export async function pingOnce(ip: string): Promise<PingOnceResult> {
   return invoke("ping_once", { ip });
+}
+
+export async function lookupIpLocation(ip: string): Promise<string> {
+  return invoke("lookup_ip_location", { ip });
 }
 
 export async function runPingMonitor(

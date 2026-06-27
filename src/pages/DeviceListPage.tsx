@@ -27,19 +27,17 @@ export function DeviceListPage({
     const q = query.trim().toLowerCase();
     if (!q) return devices;
     return devices.filter((d) =>
-      [d.name, d.ip, d.notes, String(d.services.length)]
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
+      [d.name, d.ip, d.notes].join(" ").toLowerCase().includes(q),
     );
   }, [devices, query]);
 
+  async function copyIp(ip: string) {
+    await navigator.clipboard.writeText(ip);
+    onToast("IP 已复制");
+  }
+
   async function handleDelete(device: Device) {
-    if (
-      !confirm(
-        `确定删除设备「${device.name}」吗？其下 ${device.services.length} 个服务也会一并删除。`,
-      )
-    ) {
+    if (!confirm(`确定删除设备「${device.name}」吗？`)) {
       return;
     }
     await deleteDevice(device.id);
@@ -82,7 +80,6 @@ export function DeviceListPage({
                 <tr>
                   <th>名称</th>
                   <th>IP 地址</th>
-                  <th>服务</th>
                   <th>备注</th>
                   <th>操作</th>
                 </tr>
@@ -92,9 +89,16 @@ export function DeviceListPage({
                   <tr key={device.id}>
                     <td className="cell-strong">{device.name}</td>
                     <td>
-                      <code>{device.ip}</code>
+                      <div className="row-actions">
+                        <code>{device.ip}</code>
+                        <button
+                          className="btn-ghost"
+                          onClick={() => copyIp(device.ip)}
+                        >
+                          复制
+                        </button>
+                      </div>
                     </td>
-                    <td>{device.services.length}</td>
                     <td className="cell-muted">{device.notes || "—"}</td>
                     <td>
                       <div className="row-actions">
